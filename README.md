@@ -74,7 +74,21 @@ auction-hunter/
 
 - Price estimates are heuristic (not real-time market data)
 - eBay may rate-limit with heavy usage
-- Currently eBay only (GovDeals/Liquidation need work)
+
+### Bot Protection Issues
+
+**GovDeals & Liquidation.com** use Akamai enterprise bot protection that blocks automated browsers, including Playwright with stealth settings. Current status:
+
+| Site | Status | Workaround |
+|------|--------|------------|
+| eBay | ✅ Working | Playwright with stealth |
+| GovDeals | ⚠️ Blocked | Requires residential proxy or manual search |
+| Liquidation.com | ⚠️ Blocked | Requires residential proxy or manual search |
+
+**To enable GovDeals/Liquidation scraping**, you would need:
+1. A residential proxy service (e.g., Bright Data, Oxylabs)
+2. Or use `undetected-chromedriver` with additional patches
+3. Or access their APIs directly if available
 
 ## Future Plans
 

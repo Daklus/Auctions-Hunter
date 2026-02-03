@@ -274,7 +274,13 @@ class BrowserScraper:
             return None
     
     async def search_govdeals(self, query: str, max_results: int = 20) -> List[AuctionItem]:
-        """Search GovDeals auctions - Angular SPA requires full browser"""
+        """
+        Search GovDeals auctions.
+        
+        NOTE: GovDeals uses Akamai bot protection which blocks most automated access.
+        This scraper may return 0 results unless using residential proxies.
+        Consider manual searching or API access if available.
+        """
         if not self.browser:
             await self.start()
         
@@ -429,7 +435,13 @@ class BrowserScraper:
 
 
     async def search_liquidation(self, query: str, max_results: int = 20) -> List[AuctionItem]:
-        """Search Liquidation.com - requires stealth browser"""
+        """
+        Search Liquidation.com.
+        
+        NOTE: Liquidation.com uses Akamai bot protection which blocks most automated access.
+        This scraper may return 0 results unless using residential proxies.
+        Consider manual searching or API access if available.
+        """
         if not self.browser:
             await self.start()
         
