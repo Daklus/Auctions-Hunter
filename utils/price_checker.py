@@ -158,6 +158,15 @@ def estimate_retail_from_title(title: str) -> Optional[float]:
     """
     title_lower = title.lower()
     
+    # Skip accessories and non-valuable items
+    skip_keywords = ['cable', 'lock', 'bag', 'backpack', 'charger', 'adapter', 
+                     'case', 'sleeve', 'stand', 'mount', 'holder', 'strap',
+                     'cleaning', 'kit', 'cover', 'skin', 'protector', 'lot of']
+    if any(kw in title_lower for kw in skip_keywords):
+        # These are accessories, not the main item
+        if not any(main in title_lower for main in ['macbook', 'thinkpad', 'iphone', 'ipad', 'galaxy']):
+            return None
+    
     # Laptops - detect by brand/model names too
     laptop_keywords = ['laptop', 'notebook', 'macbook', 'thinkpad', 'latitude', 
                        'chromebook', 'elitebook', 'probook', 'ideapad', 'pavilion',
