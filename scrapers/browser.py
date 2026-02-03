@@ -623,18 +623,23 @@ class BrowserScraper:
 
 async def search_all(query: str, max_per_site: int = 15) -> dict:
     """Search all auction sites"""
+    from scrapers.propertyroom import PropertyRoomScraper
+    
     scraper = BrowserScraper()
+    pr_scraper = PropertyRoomScraper()
     
     try:
         await scraper.start()
         
-        # Search in parallel
+        # Search in parallel - PropertyRoom is HTTP-only, no browser needed
         ebay_task = scraper.search_ebay(query, max_per_site)
-        govdeals_task = scraper.search_govdeals(query, max_per_site)
-        liquidation_task = scraper.search_liquidation(query, max_per_site)
+        propertyroom_task = pr_scraper.search(query, max_per_site)
+        # GovDeals and Liquidation are blocked by Akamai - skip for now
+        # govdeals_task = scraper.search_govdeals(query, max_per_site)
+        # liquidation_task = scraper.search_liquidation(query, max_per_site)
         
-        ebay_items, govdeals_items, liquidation_items = await asyncio.gather(
-            ebay_task, govdeals_task, liquidation_task,
+        ebay_items, propertyroom_items = await asyncio.gather(
+            ebay_task, propertyroom_task,
             return_exceptions=True
         )
         
@@ -642,19 +647,17 @@ async def search_all(query: str, max_per_site: int = 15) -> dict:
         if isinstance(ebay_items, Exception):
             print(f"eBay error: {ebay_items}")
             ebay_items = []
-        if isinstance(govdeals_items, Exception):
-            print(f"GovDeals error: {govdeals_items}")
-            govdeals_items = []
-        if isinstance(liquidation_items, Exception):
-            print(f"Liquidation.com error: {liquidation_items}")
-            liquidation_items = []
+        if isinstance(propertyroom_items, Exception):
+            print(f"PropertyRoom error: {propertyroom_items}")
+            propertyroom_items = []
         
         return {
             "query": query,
             "ebay": [vars(i) for i in ebay_items],
-            "govdeals": [vars(i) for i in govdeals_items],
-            "liquidation": [vars(i) for i in liquidation_items],
-            "total": len(ebay_items) + len(govdeals_items) + len(liquidation_items)
+            "propertyroom": [vars(i) for i in propertyroom_items],
+            "govdeals": [],  # Blocked by Akamai
+            "liquidation": [],  # Blocked by Akamai
+            "total": len(ebay_items) + len(propertyroom_items)
         }
         
     finally:
@@ -671,15 +674,11 @@ def format_results(results: dict) -> str:
             lines.append(f"  {i}. ${item['price']:.2f} ({item['bids']} bids) - {item['time_left']}")
             lines.append(f"     {item['title'][:50]}...")
     
-    if results.get('govdeals'):
-        lines.append("\n🏛️ GovDeals:")
-        for i, item in enumerate(results['govdeals'][:5], 1):
-            lines.append(f"  {i}. ${item['price']:.2f} - {item['title'][:50]}...")
-    
-    if results.get('liquidation'):
-        lines.append("\n📦 Liquidation.com:")
-        for i, item in enumerate(results['liquidation'][:5], 1):
-            lines.append(f"  {i}. ${item['price']:.2f} - {item['title'][:50]}...")
+    if results.get('propertyroom'):
+        lines.append("\n🚔 PropertyRoom (Police Auctions):")
+        for i, item in enumerate(results['propertyroom'][:5], 1):
+            lines.append(f"  {i}. ${item['price']:.2f} - {item['time_left']}")
+            lines.append(f"     {item['title'][:50]}...")
     
     return "\n".join(lines)
 

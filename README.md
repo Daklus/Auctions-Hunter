@@ -5,6 +5,7 @@ Find profitable auction deals on eBay. Scrapes listings, estimates retail value,
 ## Features
 
 - **eBay Scraping**: Playwright-based scraper that bypasses bot protection
+- **PropertyRoom Scraping**: HTTP-based scraper for police/government surplus auctions
 - **Price Estimation**: Heuristic retail price estimation for common products
 - **Profit Analysis**: Calculate potential profit, ROI, and margin
 - **Deal Alerts**: WhatsApp-formatted alerts for good deals
@@ -77,13 +78,14 @@ auction-hunter/
 
 ### Bot Protection Issues
 
-**GovDeals & Liquidation.com** use Akamai enterprise bot protection that blocks automated browsers, including Playwright with stealth settings. Current status:
+**GovDeals & Liquidation.com** use Akamai enterprise bot protection that blocks automated browsers. Current status:
 
-| Site | Status | Workaround |
-|------|--------|------------|
+| Site | Status | Method |
+|------|--------|--------|
 | eBay | ✅ Working | Playwright with stealth |
-| GovDeals | ⚠️ Blocked | Requires residential proxy or manual search |
-| Liquidation.com | ⚠️ Blocked | Requires residential proxy or manual search |
+| PropertyRoom | ✅ Working | HTTP scraper (no browser needed) |
+| GovDeals | ⚠️ Blocked | Requires residential proxy |
+| Liquidation.com | ⚠️ Blocked | Requires residential proxy |
 
 **To enable GovDeals/Liquidation scraping**, you would need:
 1. A residential proxy service (e.g., Bright Data, Oxylabs)
