@@ -1,6 +1,6 @@
 # Auction Hunter 🎯
 
-Find profitable auction deals on eBay. Scrapes listings, estimates retail value, and calculates profit potential.
+Find profitable auction deals on eBay and PropertyRoom. Scrapes listings, estimates retail value, and calculates profit potential.
 
 ## Features
 
@@ -8,18 +8,37 @@ Find profitable auction deals on eBay. Scrapes listings, estimates retail value,
 - **PropertyRoom Scraping**: HTTP-based scraper for police/government surplus auctions
 - **Price Estimation**: Heuristic retail price estimation for common products
 - **Profit Analysis**: Calculate potential profit, ROI, and margin
-- **Deal Alerts**: WhatsApp-formatted alerts for good deals
-- **Duplicate Tracking**: Avoid sending repeat alerts
+- **Deal Alerts**: Telegram notifications for good deals
+- **Web Dashboard**: FastAPI web interface for browsing deals
+- **Duplicate Tracking**: SQLite database to avoid repeat alerts
 
 ## Quick Start
 
+### Local Development
+
 ```bash
 # Install dependencies
-pip install playwright beautifulsoup4 httpx lxml
+pip install -r requirements.txt
 python -m playwright install chromium
 
 # Run a hunt
 python hunt.py "thinkpad" --min-profit 50
+
+# Start web dashboard
+python web/app.py
+# Open http://localhost:8080
+```
+
+### Docker (Recommended)
+
+```bash
+# Build image
+docker build -t auction-hunter .
+
+# Run container
+docker run -p 8080:8080 -e USERNAME=admin -e PASSWORD=secret auction-hunter
+
+# Open http://localhost:8080
 ```
 
 ## Usage
@@ -31,31 +50,99 @@ python hunt.py "thinkpad" --min-profit 50
 python hunt.py "macbook pro"
 python hunt.py "iphone 14" --min-profit 100
 
+# Send results to Telegram
+python hunt.py "laptop" --telegram
+
 # Direct scraper test
 python scrapers/browser.py "laptop"
 ```
 
-### From Daklus
+### Web Dashboard
 
-Ask Daklus to:
-- "Hunt for laptop deals"
-- "Search eBay for iPhone deals and send me the good ones"
-- "Find ThinkPad auctions under $200"
+```bash
+# Start the web app
+python web/app.py
+
+# Access at http://localhost:8080
+# Default credentials: hunter / deals2026
+```
+
+### Telegram Notifications
+
+```bash
+# Standalone script with notifications
+python hunt_telegram.py "thinkpad" --notify-all
+```
 
 ## Project Structure
 
 ```
 auction-hunter/
-├── hunt.py              # Main deal hunting script
+├── hunt.py                    # Main deal hunting script
+├── hunt_telegram.py          # Hunt with Telegram notifications
+├── web/
+│   └── app.py                # FastAPI web dashboard
 ├── scrapers/
-│   ├── browser.py       # Playwright-based eBay scraper
-│   └── ebay_parser.py   # Text parsing utilities
+│   ├── browser.py            # Playwright-based eBay scraper
+│   ├── propertyroom.py       # HTTP-based PropertyRoom scraper
+│   └── base.py               # Base scraper classes
 ├── utils/
-│   └── price_checker.py # Retail price estimation & profit analysis
+│   └── price_checker.py      # Retail price estimation
 ├── notifications/
-│   └── alerts.py        # WhatsApp alert formatting
-└── db/
-    └── models.py        # Database models (future)
+│   ├── telegram.py           # Telegram message formatting
+│   └── clawdbot_integration.py  # Clawdbot integration
+├── db/
+│   └── models.py             # SQLAlchemy database models
+├── Dockerfile                # Docker configuration
+├── railway.json              # Railway deployment config
+└── requirements.txt          # Python dependencies
+```
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `USERNAME` | Web dashboard username | `hunter` |
+| `PASSWORD` | Web dashboard password | `deals2026` |
+| `DATABASE_URL` | SQLite database path | `sqlite:///auction_hunter.db` |
+| `TELEGRAM_USER_ID` | Target Telegram user for notifications | `493895844` |
+
+## Deployment
+
+### Railway (Recommended)
+
+One-click deploy with HTTPS built-in:
+
+1. Fork this repo to your GitHub account
+2. Connect Railway to your GitHub repo
+3. Railway auto-detects the Dockerfile
+4. HTTPS enabled automatically
+
+See [DEPLOY.md](DEPLOY.md) for detailed instructions.
+
+### Render
+
+Alternative deployment platform:
+
+1. Connect GitHub repo to Render
+2. Render reads `render.yaml` configuration
+3. Auto-deploy on every push
+
+### Docker Compose
+
+```yaml
+version: '3.8'
+services:
+  auction-hunter:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - USERNAME=admin
+      - PASSWORD=your_secure_password
+      - DATABASE_URL=sqlite:///data/auction_hunter.db
+    volumes:
+      - ./data:/app/data
 ```
 
 ## How It Works
@@ -64,7 +151,8 @@ auction-hunter/
 2. **Parse**: Extracts price, bids, time left, condition from each listing
 3. **Analyze**: Estimates retail value based on product keywords
 4. **Calculate**: Computes profit after shipping and platform fees
-5. **Alert**: Formats good deals for WhatsApp notification
+5. **Alert**: Formats good deals for Telegram notification
+6. **Store**: Saves deals to SQLite database to avoid duplicates
 
 ## Deal Criteria
 
@@ -75,30 +163,15 @@ auction-hunter/
 
 - Price estimates are heuristic (not real-time market data)
 - eBay may rate-limit with heavy usage
-
-### Bot Protection Issues
-
-**GovDeals & Liquidation.com** use Akamai enterprise bot protection that blocks automated browsers. Current status:
-
-| Site | Status | Method |
-|------|--------|--------|
-| eBay | ✅ Working | Playwright with stealth |
-| PropertyRoom | ✅ Working | HTTP scraper (no browser needed) |
-| GovDeals | ⚠️ Blocked | Requires residential proxy |
-| Liquidation.com | ⚠️ Blocked | Requires residential proxy |
-
-**To enable GovDeals/Liquidation scraping**, you would need:
-1. A residential proxy service (e.g., Bright Data, Oxylabs)
-2. Or use `undetected-chromedriver` with additional patches
-3. Or access their APIs directly if available
+- GovDeals and Liquidation.com blocked by bot protection
 
 ## Future Plans
 
 - [ ] Real price API integration (Amazon, Google Shopping)
-- [ ] GovDeals and Liquidation.com scrapers
+- [ ] GovDeals and Liquidation.com scrapers (with proxy support)
 - [ ] Scheduled hunting with cron
-- [ ] Web dashboard
-- [ ] Database for tracking deals
+- [ ] Web dashboard improvements
+- [ ] Price history tracking
 
 ---
 
