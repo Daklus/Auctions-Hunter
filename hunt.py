@@ -6,6 +6,7 @@ Usage:
     python hunt.py "laptop"
     python hunt.py "iphone 14" --min-profit 50 --min-margin 30
     python hunt.py "thinkpad" --sources ebay,propertyroom
+    python hunt.py "thinkpad" --telegram  # Send results to Telegram
 """
 
 import sys
@@ -15,6 +16,7 @@ from typing import List, Optional
 from scrapers.browser import BrowserScraper, AuctionItem
 from scrapers.propertyroom import PropertyRoomScraper
 from utils.price_checker import analyze_deal, ProfitAnalysis
+from notifications.clawdbot_integration import ClawdbotNotifier, send_summary_alert
 
 
 @dataclass
@@ -240,10 +242,12 @@ async def main():
         print("  --min-margin N     Minimum profit margin % (default: 25)")
         print("  --max-margin N     Maximum margin % filter (default: 100)")
         print("  --sources X,Y      Sources to search (ebay,propertyroom)")
+        print("  --telegram         Send formatted output for Telegram")
         print("\nExamples:")
         print("  python hunt.py 'macbook pro' --min-profit 100")
         print("  python hunt.py 'thinkpad' --min-margin 30 --max-margin 50")
         print("  python hunt.py 'laptop' --sources propertyroom")
+        print("  python hunt.py 'laptop' --telegram")
         sys.exit(1)
     
     query = sys.argv[1]
@@ -251,6 +255,7 @@ async def main():
     min_margin = 25
     max_margin = 100
     sources = ['ebay', 'propertyroom']
+    send_telegram = '--telegram' in sys.argv or '--notify' in sys.argv
     
     # Parse arguments
     args = sys.argv[2:]
@@ -283,6 +288,30 @@ async def main():
     print("📱 Telegram Format:")
     print("-" * 60)
     print(format_telegram_deals(results))
+    
+    # Print Telegram format if requested
+    if send_telegram:
+        print(f"\n{'='*60}")
+        print("📱 Telegram Notification Format:")
+        print("-" * 60)
+        
+        # Format deals for summary
+        deal_dicts = []
+        for deal in results['deals']:
+            deal_dicts.append({
+                'title': deal.item.title,
+                'profit': deal.analysis.profit,
+                'margin_percent': deal.analysis.profit_margin_percent,
+                'url': deal.item.url
+            })
+        
+        telegram_msg = send_summary_alert(
+            query=results['query'],
+            deals=deal_dicts,
+            total_scanned=results['total_items']
+        )
+        print(telegram_msg)
+        print(f"\n✅ Send this to Daniel's Telegram (ID: 493895844)")
 
 
 if __name__ == "__main__":
