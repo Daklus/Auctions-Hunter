@@ -1,13 +1,13 @@
 """
 Auction Hunter Web Dashboard
 
-Simple FastAPI app to search and view deals.
-Password protected for security.
+FastAPI app to search and view deals across multiple auction sources.
 """
 
-from fastapi import FastAPI, Request, Query, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Query, Depends, HTTPException, status, Form
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 import secrets
 import asyncio
 import sys
@@ -17,14 +17,15 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scrapers.browser import BrowserScraper
+from scrapers.propertyroom import PropertyRoomScraper
 from utils.price_checker import analyze_deal
 
-app = FastAPI(title="Auction Hunter", version="1.0")
+app = FastAPI(title="Auction Hunter", version="2.0")
 security = HTTPBasic()
 
-# Simple credentials - change these!
-USERNAME = "hunter"
-PASSWORD = "deals2026"
+# Credentials - set via environment or defaults
+USERNAME = os.getenv("AUCTION_USER", "hunter")
+PASSWORD = os.getenv("AUCTION_PASS", "deals2026")
 
 
 def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
@@ -40,142 +41,308 @@ def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
     return credentials.username
 
 
-def get_html(query: str, content: str) -> str:
-    return f"""<!DOCTYPE html>
-<html>
+HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
 <head>
     <title>Auction Hunter 🎯</title>
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        * {{ box-sizing: border-box; }}
+        :root {{
+            --bg-dark: #0f0f1a;
+            --bg-card: #1a1a2e;
+            --accent: #00d9ff;
+            --accent-hover: #00b4d8;
+            --profit-great: #ff6b6b;
+            --profit-good: #4ecdc4;
+            --text: #eee;
+            --text-muted: #888;
+        }}
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+        }}
+        .container {{
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
-            background: #1a1a2e;
-            color: #eee;
         }}
-        h1 {{ color: #00d9ff; }}
-        .search-box {{
+        header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }}
+        h1 {{
+            color: var(--accent);
+            font-size: 28px;
+        }}
+        .search-form {{
             display: flex;
             gap: 10px;
-            margin: 20px 0;
+            flex-wrap: wrap;
+            width: 100%;
+            max-width: 700px;
         }}
-        input[type="text"] {{
+        .search-input {{
             flex: 1;
-            padding: 12px;
+            min-width: 200px;
+            padding: 14px 18px;
             font-size: 16px;
             border: 2px solid #333;
-            border-radius: 8px;
-            background: #16213e;
-            color: #fff;
+            border-radius: 10px;
+            background: var(--bg-card);
+            color: var(--text);
+            transition: border-color 0.2s;
         }}
-        input[type="text"]:focus {{
-            border-color: #00d9ff;
+        .search-input:focus {{
+            border-color: var(--accent);
             outline: none;
         }}
-        button {{
-            padding: 12px 24px;
+        .search-btn {{
+            padding: 14px 28px;
             font-size: 16px;
-            background: #00d9ff;
+            background: var(--accent);
             color: #000;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             cursor: pointer;
             font-weight: bold;
+            transition: background 0.2s;
         }}
-        button:hover {{ background: #00b4d8; }}
-        .stats {{
+        .search-btn:hover {{ background: var(--accent-hover); }}
+        .search-btn:disabled {{
+            background: #555;
+            cursor: wait;
+        }}
+        .options {{
             display: flex;
             gap: 20px;
-            margin: 20px 0;
+            margin: 15px 0;
             flex-wrap: wrap;
         }}
+        .option {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: var(--text-muted);
+        }}
+        .option input[type="number"] {{
+            width: 70px;
+            padding: 6px;
+            border: 1px solid #444;
+            border-radius: 5px;
+            background: var(--bg-card);
+            color: var(--text);
+        }}
+        .option label {{
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }}
+        .stats {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 15px;
+            margin: 25px 0;
+        }}
         .stat {{
-            background: #16213e;
-            padding: 15px 25px;
-            border-radius: 8px;
+            background: var(--bg-card);
+            padding: 20px;
+            border-radius: 12px;
             text-align: center;
         }}
-        .stat-value {{ font-size: 24px; font-weight: bold; color: #00d9ff; }}
-        .stat-label {{ font-size: 12px; color: #888; }}
-        .deals {{ display: grid; gap: 15px; }}
-        .deal {{
-            background: #16213e;
-            border-radius: 10px;
-            padding: 20px;
-            border-left: 4px solid #333;
+        .stat-value {{
+            font-size: 32px;
+            font-weight: bold;
+            color: var(--accent);
         }}
-        .deal.great {{ border-left-color: #ff6b6b; }}
-        .deal.good {{ border-left-color: #4ecdc4; }}
+        .stat-label {{
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }}
+        .source-badge {{
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }}
+        .source-ebay {{ background: #e53238; color: white; }}
+        .source-propertyroom {{ background: #2563eb; color: white; }}
+        .deals {{
+            display: grid;
+            gap: 15px;
+        }}
+        .deal {{
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 4px solid #444;
+            transition: transform 0.2s;
+        }}
+        .deal:hover {{ transform: translateX(5px); }}
+        .deal.great {{ border-left-color: var(--profit-great); }}
+        .deal.good {{ border-left-color: var(--profit-good); }}
+        .deal-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 12px;
+        }}
         .deal-title {{
             font-size: 16px;
-            margin-bottom: 10px;
-            color: #fff;
+            line-height: 1.4;
         }}
-        .deal-title a {{ color: #00d9ff; text-decoration: none; }}
-        .deal-title a:hover {{ text-decoration: underline; }}
-        .deal-info {{
+        .deal-title a {{
+            color: var(--text);
+            text-decoration: none;
+        }}
+        .deal-title a:hover {{ color: var(--accent); }}
+        .deal-profit {{
+            font-size: 22px;
+            font-weight: bold;
+            color: var(--profit-good);
+            white-space: nowrap;
+        }}
+        .deal.great .deal-profit {{ color: var(--profit-great); }}
+        .deal-meta {{
             display: flex;
             gap: 20px;
             flex-wrap: wrap;
             font-size: 14px;
-            color: #aaa;
+            color: var(--text-muted);
         }}
-        .deal-profit {{
-            font-size: 20px;
-            font-weight: bold;
-            color: #4ecdc4;
+        .deal-meta span {{
+            display: flex;
+            align-items: center;
+            gap: 5px;
         }}
-        .deal.great .deal-profit {{ color: #ff6b6b; }}
-        .deal-time {{ color: #ffd93d; }}
-        .no-deals {{
+        .time-urgent {{ color: #ffd93d; }}
+        .empty-state {{
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }}
+        .empty-state h2 {{ margin-bottom: 15px; color: var(--text); }}
+        .loading {{
             text-align: center;
             padding: 40px;
-            color: #888;
         }}
-        .footer {{
+        .spinner {{
+            width: 40px;
+            height: 40px;
+            border: 3px solid #333;
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }}
+        @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+        footer {{
             text-align: center;
-            margin-top: 40px;
-            padding-top: 20px;
+            margin-top: 50px;
+            padding: 20px;
             border-top: 1px solid #333;
-            color: #666;
+            color: var(--text-muted);
+            font-size: 14px;
+        }}
+        @media (max-width: 600px) {{
+            .deal-header {{ flex-direction: column; }}
+            .deal-profit {{ align-self: flex-start; }}
         }}
     </style>
 </head>
 <body>
-    <h1>🎯 Auction Hunter</h1>
-    
-    <form class="search-box" method="get" action="/search">
-        <input type="text" name="q" placeholder="Search for deals (e.g., thinkpad, iphone 14)" 
-               value="{query}" required>
-        <button type="submit">🔍 Hunt Deals</button>
-    </form>
-    
-    {content}
-    
-    <div class="footer">
-        Built by Daklus ⚡
+    <div class="container">
+        <header>
+            <h1>🎯 Auction Hunter</h1>
+        </header>
+        
+        <form class="search-form" method="get" action="/search" id="searchForm">
+            <input type="text" name="q" class="search-input" 
+                   placeholder="Search for deals (e.g., thinkpad, iphone 14, macbook)" 
+                   value="{query}" required>
+            <button type="submit" class="search-btn" id="searchBtn">🔍 Hunt Deals</button>
+        </form>
+        
+        <div class="options">
+            <div class="option">
+                <label>Min Profit: $</label>
+                <input type="number" name="min_profit" value="{min_profit}" min="0" form="searchForm">
+            </div>
+            <div class="option">
+                <label>Min Margin: </label>
+                <input type="number" name="min_margin" value="{min_margin}" min="0" max="100" form="searchForm">%
+            </div>
+            <div class="option">
+                <label>
+                    <input type="checkbox" name="ebay" value="1" {ebay_checked} form="searchForm">
+                    📦 eBay
+                </label>
+            </div>
+            <div class="option">
+                <label>
+                    <input type="checkbox" name="propertyroom" value="1" {pr_checked} form="searchForm">
+                    🚔 PropertyRoom
+                </label>
+            </div>
+        </div>
+        
+        {content}
+        
+        <footer>
+            Auction Hunter v2.0 — Built by Daklus ⚡
+        </footer>
     </div>
 </body>
 </html>"""
 
 
-def deal_card(url: str, title: str, profit: float, price: float, 
+def render_page(query: str = "", content: str = "", min_profit: int = 30, 
+                min_margin: int = 25, ebay: bool = True, propertyroom: bool = True) -> str:
+    return HTML_TEMPLATE.format(
+        query=query,
+        content=content,
+        min_profit=min_profit,
+        min_margin=min_margin,
+        ebay_checked="checked" if ebay else "",
+        pr_checked="checked" if propertyroom else ""
+    )
+
+
+def deal_card(source: str, url: str, title: str, profit: float, price: float, 
               shipping: float, time_left: str, condition: str, 
               margin: float, is_great: bool, is_good: bool) -> str:
     deal_class = "great" if is_great else "good" if is_good else ""
+    source_class = f"source-{source}"
+    source_label = "eBay" if source == "ebay" else "PropertyRoom"
+    
+    # Check if time is urgent (less than 1 hour)
+    time_class = "time-urgent" if any(x in time_left.lower() for x in ['m ', 'min', ':']) and 'h' not in time_left.lower() else ""
+    
     return f"""<div class="deal {deal_class}">
-    <div class="deal-title">
-        <a href="{url}" target="_blank">{title}</a>
+    <div class="deal-header">
+        <div class="deal-title">
+            <span class="source-badge {source_class}">{source_label}</span>
+            <a href="{url}" target="_blank" rel="noopener">{title}</a>
+        </div>
+        <div class="deal-profit">${profit:.0f} ({margin:.0f}%)</div>
     </div>
-    <div class="deal-info">
-        <span class="deal-profit">${profit:.0f} profit</span>
+    <div class="deal-meta">
         <span>💵 ${price:.2f} + ${shipping:.2f} ship</span>
-        <span class="deal-time">⏰ {time_left}</span>
+        <span class="{time_class}">⏰ {time_left}</span>
         <span>📦 {condition}</span>
-        <span>📊 {margin:.0f}% margin</span>
     </div>
 </div>"""
 
@@ -183,50 +350,96 @@ def deal_card(url: str, title: str, profit: float, price: float,
 @app.get("/", response_class=HTMLResponse)
 async def home(username: str = Depends(verify_credentials)):
     content = """
-    <div class="no-deals">
-        <h2>👆 Enter a search term above to find deals</h2>
-        <p>Try: "laptop", "iphone 14", "macbook pro", "nintendo switch"</p>
+    <div class="empty-state">
+        <h2>👆 Enter a search term to find deals</h2>
+        <p>Try searching for: laptop, iphone 14, macbook pro, nintendo switch, thinkpad</p>
+        <p style="margin-top: 20px; font-size: 13px;">
+            Sources: eBay auctions + PropertyRoom police auctions
+        </p>
     </div>
     """
-    return get_html("", content)
+    return render_page(content=content)
 
 
 @app.get("/search", response_class=HTMLResponse)
-async def search(q: str = Query(...), username: str = Depends(verify_credentials)):
-    scraper = BrowserScraper()
+async def search(
+    q: str = Query(..., min_length=2),
+    min_profit: int = Query(30, ge=0),
+    min_margin: int = Query(25, ge=0, le=100),
+    ebay: int = Query(1),
+    propertyroom: int = Query(1),
+    username: str = Depends(verify_credentials)
+):
+    """Search for deals across sources"""
     
-    try:
-        await scraper.start()
-        items = await scraper.search_ebay(q, max_results=25)
-    finally:
-        await scraper.stop()
-    
-    # Analyze deals
+    all_items = []
     deals = []
-    for item in items:
-        analysis = analyze_deal(
-            title=item.title,
-            auction_price=item.price,
-            shipping=item.shipping,
-            condition=item.condition
-        )
-        if analysis and analysis.profit > 0:
-            deals.append({
-                'item': item,
-                'analysis': analysis
-            })
+    source_counts = {}
     
-    # Sort by profit
-    deals.sort(key=lambda x: x['analysis'].profit, reverse=True)
+    # Search eBay
+    if ebay:
+        try:
+            scraper = BrowserScraper()
+            await scraper.start()
+            ebay_items = await scraper.search_ebay(q, max_results=20)
+            await scraper.stop()
+            
+            source_counts['ebay'] = len(ebay_items)
+            
+            for item in ebay_items:
+                item.source = 'ebay'
+                all_items.append(item)
+                
+                analysis = analyze_deal(
+                    title=item.title,
+                    auction_price=item.price,
+                    shipping=item.shipping,
+                    condition=item.condition
+                )
+                
+                if analysis and analysis.profit >= min_profit and analysis.profit_margin_percent >= min_margin:
+                    deals.append({'item': item, 'analysis': analysis, 'source': 'ebay'})
+                    
+        except Exception as e:
+            print(f"eBay error: {e}")
+            source_counts['ebay'] = 0
+    
+    # Search PropertyRoom
+    if propertyroom:
+        try:
+            pr_scraper = PropertyRoomScraper()
+            pr_items = await pr_scraper.search(q, max_results=20)
+            
+            source_counts['propertyroom'] = len(pr_items)
+            
+            for item in pr_items:
+                all_items.append(item)
+                
+                analysis = analyze_deal(
+                    title=item.title,
+                    auction_price=item.price,
+                    shipping=item.shipping,
+                    condition="Pre-Owned"
+                )
+                
+                if analysis and analysis.profit >= min_profit and analysis.profit_margin_percent >= min_margin:
+                    deals.append({'item': item, 'analysis': analysis, 'source': 'propertyroom'})
+                    
+        except Exception as e:
+            print(f"PropertyRoom error: {e}")
+            source_counts['propertyroom'] = 0
+    
+    # Sort by margin
+    deals.sort(key=lambda x: x['analysis'].profit_margin_percent, reverse=True)
     
     # Build stats
-    great_deals = len([d for d in deals if d['analysis'].is_great_deal])
-    good_deals = len([d for d in deals if d['analysis'].is_good_deal])
+    great_count = len([d for d in deals if d['analysis'].is_great_deal])
+    good_count = len([d for d in deals if d['analysis'].is_good_deal])
     
     stats_html = f"""
     <div class="stats">
         <div class="stat">
-            <div class="stat-value">{len(items)}</div>
+            <div class="stat-value">{len(all_items)}</div>
             <div class="stat-label">Items Scanned</div>
         </div>
         <div class="stat">
@@ -234,92 +447,163 @@ async def search(q: str = Query(...), username: str = Depends(verify_credentials
             <div class="stat-label">Profitable Deals</div>
         </div>
         <div class="stat">
-            <div class="stat-value">{great_deals}</div>
+            <div class="stat-value">{great_count}</div>
             <div class="stat-label">🔥 Great Deals</div>
         </div>
         <div class="stat">
-            <div class="stat-value">{good_deals}</div>
+            <div class="stat-value">{good_count}</div>
             <div class="stat-label">💰 Good Deals</div>
         </div>
     </div>
     """
     
+    # Build source breakdown
+    sources_html = "<p style='color: #888; font-size: 13px; margin-bottom: 20px;'>Sources: "
+    sources_html += " • ".join([f"{k}: {v} items" for k, v in source_counts.items()])
+    sources_html += "</p>"
+    
     if not deals:
-        content = stats_html + """
-        <div class="no-deals">
-            <h3>No profitable deals found</h3>
-            <p>Try a different search term or check back later.</p>
+        content = stats_html + sources_html + """
+        <div class="empty-state">
+            <h2>No profitable deals found</h2>
+            <p>Try lowering the minimum profit/margin or searching for something else.</p>
         </div>
         """
     else:
         cards = []
-        for d in deals[:20]:
+        for d in deals[:25]:
             item = d['item']
             a = d['analysis']
             
             cards.append(deal_card(
+                source=d['source'],
                 url=item.url,
                 title=item.title[:80],
                 profit=a.profit,
                 price=item.price,
                 shipping=item.shipping,
-                time_left=item.time_left[:25] if item.time_left else "unknown",
+                time_left=item.time_left[:30] if item.time_left else "—",
                 condition=item.condition[:25] if item.condition else "Unknown",
                 margin=a.profit_margin_percent,
                 is_great=a.is_great_deal,
                 is_good=a.is_good_deal
             ))
         
-        content = stats_html + '<div class="deals">' + ''.join(cards) + '</div>'
+        content = stats_html + sources_html + '<div class="deals">' + '\n'.join(cards) + '</div>'
     
-    return get_html(q, content)
+    return render_page(
+        query=q, 
+        content=content,
+        min_profit=min_profit,
+        min_margin=min_margin,
+        ebay=bool(ebay),
+        propertyroom=bool(propertyroom)
+    )
 
 
 @app.get("/api/search")
-async def api_search(q: str, max_results: int = 20, username: str = Depends(verify_credentials)):
+async def api_search(
+    q: str,
+    max_results: int = 20,
+    min_profit: float = 0,
+    min_margin: float = 0,
+    username: str = Depends(verify_credentials)
+):
     """API endpoint for programmatic access"""
-    scraper = BrowserScraper()
-    
-    try:
-        await scraper.start()
-        items = await scraper.search_ebay(q, max_results)
-    finally:
-        await scraper.stop()
     
     results = []
-    for item in items:
-        analysis = analyze_deal(
-            title=item.title,
-            auction_price=item.price,
-            shipping=item.shipping,
-            condition=item.condition
-        )
+    
+    # Search both sources
+    try:
+        scraper = BrowserScraper()
+        await scraper.start()
+        ebay_items = await scraper.search_ebay(q, max_results)
+        await scraper.stop()
         
-        result = {
-            'title': item.title,
-            'price': item.price,
-            'shipping': item.shipping,
-            'condition': item.condition,
-            'time_left': item.time_left,
-            'url': item.url,
-            'bids': item.bids
-        }
+        for item in ebay_items:
+            analysis = analyze_deal(
+                title=item.title,
+                auction_price=item.price,
+                shipping=item.shipping,
+                condition=item.condition
+            )
+            
+            result = {
+                'source': 'ebay',
+                'title': item.title,
+                'price': item.price,
+                'shipping': item.shipping,
+                'condition': item.condition,
+                'time_left': item.time_left,
+                'url': item.url,
+                'bids': item.bids
+            }
+            
+            if analysis:
+                result['profit'] = round(analysis.profit, 2)
+                result['margin'] = round(analysis.profit_margin_percent, 1)
+                result['estimated_retail'] = analysis.estimated_retail
+                result['is_good_deal'] = analysis.is_good_deal
+                result['is_great_deal'] = analysis.is_great_deal
+            
+            if analysis and analysis.profit >= min_profit and analysis.profit_margin_percent >= min_margin:
+                results.append(result)
+                
+    except Exception as e:
+        print(f"eBay API error: {e}")
+    
+    try:
+        pr_scraper = PropertyRoomScraper()
+        pr_items = await pr_scraper.search(q, max_results)
         
-        if analysis:
-            result['profit'] = round(analysis.profit, 2)
-            result['margin'] = round(analysis.profit_margin_percent, 1)
-            result['is_good_deal'] = analysis.is_good_deal
-            result['is_great_deal'] = analysis.is_great_deal
-        
-        results.append(result)
+        for item in pr_items:
+            analysis = analyze_deal(
+                title=item.title,
+                auction_price=item.price,
+                shipping=item.shipping,
+                condition="Pre-Owned"
+            )
+            
+            result = {
+                'source': 'propertyroom',
+                'title': item.title,
+                'price': item.price,
+                'shipping': item.shipping,
+                'condition': item.condition,
+                'time_left': item.time_left,
+                'url': item.url,
+            }
+            
+            if analysis:
+                result['profit'] = round(analysis.profit, 2)
+                result['margin'] = round(analysis.profit_margin_percent, 1)
+                result['estimated_retail'] = analysis.estimated_retail
+                result['is_good_deal'] = analysis.is_good_deal
+                result['is_great_deal'] = analysis.is_great_deal
+            
+            if analysis and analysis.profit >= min_profit and analysis.profit_margin_percent >= min_margin:
+                results.append(result)
+                
+    except Exception as e:
+        print(f"PropertyRoom API error: {e}")
+    
+    # Sort by profit
+    results.sort(key=lambda x: x.get('profit', 0), reverse=True)
     
     return {
         'query': q,
         'total': len(results),
-        'items': sorted(results, key=lambda x: x.get('profit', 0), reverse=True)
+        'items': results
     }
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint"""
+    return {"status": "ok", "version": "2.0"}
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    port = int(os.getenv("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
