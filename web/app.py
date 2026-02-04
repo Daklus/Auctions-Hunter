@@ -19,9 +19,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scrapers.browser import BrowserScraper
 from scrapers.propertyroom import PropertyRoomScraper
 from utils.price_checker import analyze_deal
+from db.database import (
+    init_db, is_deal_seen, mark_deal_seen, log_search,
+    get_recent_searches, get_stats, save_deal, get_saved_deals
+)
 
 app = FastAPI(title="Auction Hunter", version="2.0")
 security = HTTPBasic()
+
+# Initialize database on startup
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+    print("✅ Database initialized")
 
 # Credentials - set via environment or defaults
 USERNAME = os.getenv("AUCTION_USER", "hunter")
@@ -432,6 +442,21 @@ async def search(
     # Sort by margin
     deals.sort(key=lambda x: x['analysis'].profit_margin_percent, reverse=True)
     
+    # Log search and mark deals as seen
+    total_sources = ', '.join(source_counts.keys())
+    log_search(q, total_sources, len(all_items), len(deals))
+    
+    # Mark profitable deals as seen
+    for d in deals:
+        mark_deal_seen(
+            source=d['source'],
+            item_url=d['item'].url,
+            title=d['item'].title,
+            price=d['item'].price,
+            profit=d['analysis'].profit,
+            margin=d['analysis'].profit_margin_percent
+        )
+    
     # Build stats
     great_count = len([d for d in deals if d['analysis'].is_great_deal])
     good_count = len([d for d in deals if d['analysis'].is_good_deal])
@@ -601,6 +626,44 @@ async def api_search(
 async def health():
     """Health check endpoint"""
     return {"status": "ok", "version": "2.0"}
+
+
+@app.get("/api/stats")
+async def api_stats(username: str = Depends(verify_credentials)):
+    """Get database statistics"""
+    stats = get_stats()
+    recent = get_recent_searches(limit=5)
+    return {
+        "stats": stats,
+        "recent_searches": recent
+    }
+
+
+@app.get("/api/history")
+async def api_history(limit: int = 20, username: str = Depends(verify_credentials)):
+    """Get search history"""
+    return {"searches": get_recent_searches(limit=limit)}
+
+
+@app.post("/api/save")
+async def api_save_deal(
+    url: str,
+    title: str,
+    source: str = "unknown",
+    price: float = 0,
+    profit: float = 0,
+    margin: float = 0,
+    username: str = Depends(verify_credentials)
+):
+    """Save a deal to favorites"""
+    save_deal(source, url, title, price, profit, margin)
+    return {"status": "saved", "url": url}
+
+
+@app.get("/api/saved")
+async def api_get_saved(username: str = Depends(verify_credentials)):
+    """Get saved deals"""
+    return {"deals": get_saved_deals()}
 
 
 if __name__ == "__main__":
