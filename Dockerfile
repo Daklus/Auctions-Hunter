@@ -1,29 +1,32 @@
 # Auction Hunter Dockerfile
-# Supports Playwright browser automation
+# Supports Playwright browser automation on Debian 12 (Bookworm)
 
 FROM python:3.11-slim
 
 # Install system dependencies for Playwright
+# Updated for Debian 12 (bookworm) - removed deprecated packages
 RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    libgconf-2-4 \
+    libglib2.0-0 \
+    libnss3 \
     libatk1.0-0 \
     libatk-bridge2.0-0 \
-    libgdk-pixbuf2.0-0 \
+    libcups2 \
     libgtk-3-0 \
     libgbm1 \
-    libnss3 \
-    libxss1 \
     libasound2 \
+    libxss1 \
     libxtst6 \
     libxrandr2 \
     libxcomposite1 \
     libxdamage1 \
     libxfixes3 \
-    libglib2.0-0 \
     libdrm2 \
     libxkbcommon0 \
+    fonts-liberation \
+    libappindicator3-1 \
+    libu2f-udev \
+    libvulkan1 \
+    xdg-utils \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
